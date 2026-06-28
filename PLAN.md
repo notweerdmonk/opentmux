@@ -223,3 +223,14 @@ Inconsistent error handling for `closeTmuxPane`. Two call sites (Path B, `closeS
 | S2 | Suggestion | `src/__tests__/tmux-session-manager.test.ts` | Add test: `closeTmuxPane` rejection during dedup doesn't lose child event |
 
 **Results:** 79/80 tests pass (1 pre-existing flaky), typecheck clean.
+
+## Plan Item: Prune unbounded parentSessions Set (W1)
+
+**Status:** ✅ Complete
+
+`parentSessions: Set<string>` accumulates entries via `add()` but never prunes. Add `delete()` calls after pane close/discard to prevent unbounded growth over long-running sessions.
+
+| Location | Prune |
+|----------|-------|
+| Path B (~line 123) | `this.parentSessions.delete(parentId)` after pane closed |
+| Path A (~line 154) | `this.parentSessions.delete(sessionId)` after pane discarded |

@@ -119,6 +119,7 @@ export class TmuxSessionManager {
           }),
         );
         this.sessions.delete(parentId);
+        this.parentSessions.delete(parentId);
 
         if (this.sessions.size === 0) {
           this.stopPolling();
@@ -150,6 +151,7 @@ export class TmuxSessionManager {
           paneId: paneResult.paneId,
         });
         await closeTmuxPane(paneResult.paneId).catch(() => {});
+        this.parentSessions.delete(sessionId);
         return;
       }
 
