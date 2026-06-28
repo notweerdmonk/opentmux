@@ -1,10 +1,10 @@
 # AGENTS.md
 
-Instructions for AI agents working on opencode-agent-tmux.
+Instructions for AI agents working on opentmux.
 
 ## Project Overview
 
-An OpenCode plugin providing smart tmux integration for viewing agent execution in real-time. Built as a TypeScript Node.js package with Bun tooling.
+An OpenCode plugin providing smart tmux integration for viewing agent execution in real-time. Built as a TypeScript Node.js ESM package with Bun tooling (tsup for bundling, Zod for config validation).
 
 **Core Technologies:**
 - TypeScript (ESNext, strict mode)
@@ -28,12 +28,18 @@ bun run typecheck
 ```
 
 ### Testing
-**Note:** This project uses manual/integration testing (no automated test suite).
+
+No `npm test` script exists. All unit tests use `bun:test` with `mock`, `spyOn`.
+
+```bash
+# Test suite
+bun test             # runs src/__tests__/*.test.ts (uses bun:test)
+```
 
 ```bash
 # Integration test scripts
-./scripts/test-plugin.sh      # Test plugin integration
-./scripts/test-multiport.sh   # Test multi-port support
+./test-plugin.sh      # Test plugin integration
+./test-multiport.sh   # Test multi-port support
 
 # Manual test after local build
 ./scripts/dev-setup.sh         # Sets up local development
@@ -48,6 +54,16 @@ opencode                       # Run to test integration
 # Type checking serves as primary linting
 bun run typecheck
 ```
+
+## Architecture
+
+Two entrypoints serve different roles:
+
+**`src/index.ts`** — The OpenCode plugin (default export). Loaded by OpenCode at runtime via the plugin system. Listens for `session.created` events, spawns tmux panes running `opencode attach <serverUrl> --session <id>`, polls session status, and closes panes when sessions end.
+
+**`src/bin/opentmux.ts`** — The CLI binary (`dist/bin/opentmux.js`, declared in `package.json` `"bin"`). A smart wrapper that replaces the `opencode` command (via shell alias `alias opencode='opentmux'` set by postinstall). It finds an available port (4096–4106), optionally reclaims stuck ports, and spawns `opencode --port <port>`. If not already inside tmux, it creates a new tmux session.
+
+**Key flow:** `opencode` (aliased) → `opentmux` (binary) → finds port → spawns `opencode` (real binary) → OpenCode loads the plugin → plugin receives `session.created` → spawns tmux pane → polls → cleanup.
 
 ## Code Style Guidelines
 
@@ -187,13 +203,55 @@ async function getData(): Promise<Data> {
 
 ## Configuration Files
 
+**Plugin Config Location:**
+
+1. `{project_dir}/opentmux.json`                    _(Primary)_
+2. `~/.config/opencode/opentmux.json`               _(Global)_
+
+**Backward compatible configuration files:**
+
+1. `{project_dir}/opencode-agent-tmux.json`         _(Primary)_
+2. `~/.config/opencode/opencode-agent-tmux.json`    _(Global)_
+
+Full schema in `src/config.ts` (`PluginConfigSchema`). Defaults: `enabled: true`, `port: 4096`, `layout: main-vertical`, `main_pane_size: 60`, `auto_close: true`. Additional fields: `spawn_delay_ms` (300), `max_retry_attempts` (2), `layout_debounce_ms` (150), `max_agents_per_column` (3), `rotate_port` (false), `max_ports` (10), and reaper options.
+
+## Build Configuration Files
+
 - **tsconfig.json**: TypeScript compiler (strict mode, ESNext target)
 - **tsup.config.ts**: Build configuration (ESM output, multiple entries)
 - **package.json**: NPM metadata, scripts, dependencies
 
-**Plugin Config Location:**
-- Primary: `~/.config/opencode/opencode-agent-tmux.json`
-- Fallback: `{project}/opencode-agent-tmux.json`
+## Logs
+
+| Component | Path |
+|-----------|------|
+| Plugin runtime | `/tmp/opencode-agent-tmux.log` |
+| Binary wrapper | `/tmp/opentmux.log` |
+
+Both append-only, silently swallow errors if write fails.
+
+## Testing
+
+- **Unit tests:** `bun test` — all in `src/__tests__/`. Mock-heavy (mocks `spawnAsync`, `fetch`, `setInterval`, etc.).
+- **Manual integration:** `scripts/dev-setup.sh` then run `opencode` in a terminal.
+- **Test scripts** (`test-plugin.sh`, `test-multiport.sh`) are manual/integration only; not automated.
+
+## Release
+
+GitHub Actions handles releases automatically:
+- Push to `main` triggers `release.yml` (release-please → creates PR/Release).
+- GitHub Release published triggers `publish.yml` (`npm publish --access public --provenance` via OIDC).
+- **Do not** run `npm publish` manually.
+- Tags with `release-please`, not manual `git tag`.
+
+## Gotchas
+
+- **`src/utils/layout.ts`** is dead code — never imported by any production file. All imports use `src/layout.ts`.
+- **`scripts/dev-setup.sh`** checks for `dist/bin/opencode-tmux.js` but the actual output is `dist/bin/opentmux.js`. The script is stale.
+- **`test-multiport.sh`** has hardcoded paths from the author's machine; not runnable as-is.
+- The postinstall script (`src/scripts/install.ts`) writes shell aliases to `~/.zshrc`/`~/.bashrc`/`~/.config/fish/config.fish` using marker blocks (`# >>> opentmux >>>`). It also sets `export OPENCODE_PORT=4096`. To disable automated plugin updates, set `OPENCODE_TMUX_DISABLE_UPDATES=1`.
+- Port range is `config.port + max_ports` (default: 4096–4106). The binary attempts to reclaim stuck ports by killing orphaned `opencode` processes.
+- The plugin guards against duplicate initialization via `isInitialized` boolean and tracks pending sessions via `pendingSessions` Set to avoid race conditions.
 
 ## Release Process
 

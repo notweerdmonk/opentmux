@@ -71,6 +71,68 @@ To install this plugin, please perform the following steps for the user:
 3.  **Run OpenCode:**
     Restart your terminal and type `opencode`. The plugin handles the rest!
 
+## 🗑️ Uninstallation
+
+To fully remove opentmux from your system, three independent layers must be cleaned up:
+
+### 1. Remove the shell alias
+
+The installer added a marker-delimited block to your shell config file. Open your shell's rc file and delete everything between (and including) these markers:
+
+```bash
+# Open your shell config (~/.zshrc, ~/.bashrc, or ~/.config/fish/config.fish)
+$EDITOR ~/.zshrc
+```
+
+Delete this block:
+
+```
+# >>> opentmux >>>
+export OPENCODE_PORT=4096
+alias opencode='opentmux'
+# <<< opentmux <<<
+```
+
+Then reload your shell:
+
+```bash
+source ~/.zshrc
+```
+
+### 2. Uninstall the npm package
+
+```bash
+# If installed globally (recommended)
+npm uninstall -g opentmux
+
+# Or if installed locally to a project
+# npm uninstall opentmux
+```
+
+This removes the binary and module from `~/.nvm/versions/node/*/lib/node_modules/opentmux/`.
+
+### 3. Remove from OpenCode config
+
+If `"opentmux"` is listed in your OpenCode config's `plugin` array, remove it:
+
+```diff
+{
+  "plugin": [
+-    "opentmux"
+  ]
+}
+```
+
+> **Note:** Removing the config entry only prevents OpenCode from loading the plugin. The npm package is **not** automatically uninstalled — you must run `npm uninstall -g opentmux` separately.
+
+### 🧹 Optional: Clean plugin cache
+
+OpenCode caches npm plugins at `~/.cache/opencode/node_modules/`. To free disk space:
+
+```bash
+rm -rf ~/.cache/opencode/node_modules/opentmux
+```
+
 ## 🛠️ Development
 
 For contributors working on this plugin locally, see [LOCAL_DEVELOPMENT.md](docs/LOCAL_DEVELOPMENT.md) for setup instructions.
@@ -78,6 +140,7 @@ For contributors working on this plugin locally, see [LOCAL_DEVELOPMENT.md](docs
 ## ✨ Features
 
 - **Automatic Tmux Pane Spawning**: When any agent starts, automatically spawns a tmux pane
+- **Smart Dedup**: Automatically detects transient intermediate sessions (tool-call wrappers), creating panes only for real subagents — no more redundant panes in swarm mode
 - **Live Streaming**: Each pane runs `opencode attach` to show real-time agent output
 - **Auto-Cleanup**: Panes automatically close when agents complete
 - **Configurable Layout**: Support multiple tmux layouts (`main-vertical`, `tiled`, etc.)

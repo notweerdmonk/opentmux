@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Duplicate pane spawning in swarm mode**: When launching multiple subagents, each tool-call wrapper session was getting its own tmux pane alongside the actual subagent. Added parent-child session tracking: intermediate/transient sessions (identified as parents of other sessions) no longer retain panes. Only leaf sessions (actual subagents) get panes. ([#fix/dedup-session-panes](https://github.com/AnganSamadder/opentmux/tree/fix/dedup-session-panes))
+
 ## [1.5.6](https://github.com/AnganSamadder/opentmux/compare/v1.5.5...v1.5.6) (2026-02-11)
 
 

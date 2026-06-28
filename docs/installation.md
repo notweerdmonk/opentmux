@@ -1,63 +1,67 @@
 # Installation Guide
 
-Follow these steps to install and configure the **opentmux** plugin.
-
 ## Prerequisites
 
 - **OpenCode** installed and configured
-- **tmux** installed (`brew install tmux` or `apt install tmux`)
-- **Bun** runtime installed (`curl -fsSL https://bun.sh/install | bash`)
+- **tmux** installed (`brew install tmux` on macOS, `sudo apt install tmux` on Linux, `winget install tmux` on Windows)
+- **Node.js** or **Bun** runtime
 
-## Automatic Installation (Recommended)
+## Install via npm (Recommended)
 
-Run this one-liner in your terminal:
+The quickest way to install opentmux:
 
 ```bash
-git clone https://github.com/AnganSamadder/opentmux.git ~/Code/opentmux && \
-cd ~/Code/opentmux && \
-bun install && \
+npm install -g opentmux
+```
+
+This command:
+
+1. Installs the package to npm's global `node_modules`
+2. Adds the `opentmux` binary to npm's global bin directory
+3. Runs the `postinstall` script, which:
+   - Detects your shell (bash/zsh/fish/powershell)
+   - Adds `alias opencode='opentmux'` to your shell config
+   - Sets `export OPENCODE_PORT=4096`
+
+### Enable the Plugin
+
+Add `"opentmux"` to your OpenCode config (`~/.config/opencode/opencode.json`):
+
+```json
+{
+  "plugin": [
+    "opentmux"
+  ]
+}
+```
+
+### Verify
+
+Restart your terminal and run `opencode`. The plugin should automatically create tmux panes when agents spawn.
+
+## Install from Source
+
+For contributors or those who want the latest unreleased changes:
+
+```bash
+git clone https://github.com/AnganSamadder/opentmux.git
+cd opentmux
+bun install
 bun run build
 ```
 
-Then reload your shell configuration:
+Then register the local build in your OpenCode config:
 
-```bash
-source ~/.zshrc  # or ~/.bashrc
+```json
+{
+  "plugin": [
+    "/path/to/opentmux"
+  ]
+}
 ```
 
-## Manual Installation
+> **Note:** When installed from source, the shell alias (`alias opencode='opentmux'`) is not automatically configured. Run `node dist/scripts/install.js` manually, or set the alias yourself.
 
-3. **Clone the repository**
-   ```bash
-   mkdir -p ~/Code
-   cd ~/Code
-   git clone https://github.com/AnganSamadder/opentmux.git
-   cd opentmux
-   ```
+## Uninstallation
 
-2. **Install dependencies**
-   ```bash
-   bun install
-   ```
-   *Note: This automatically sets up the shell alias and wrapper script.*
-
-3. **Build the plugin**
-   ```bash
-   bun run build
-   ```
-
-4. **Register the plugin**
-    Add the plugin path to your OpenCode config (`~/.config/opencode/opencode.json`):
-    ```json
-    {
-      "plugin": [
-        "/Users/YOUR_USERNAME/Code/opentmux"
-      ]
-    }
-    ```
-
-## Verification
-
-1. Start a new terminal session.
-2. Type `opencode` (it should launch tmux automatically).
-3. In OpenCode, run `/help` or check the logs to verify the plugin is active.
+See the [Uninstallation section](../README.md#-uninstallation) in the README for detailed instructions on removing all layers of opentmux.

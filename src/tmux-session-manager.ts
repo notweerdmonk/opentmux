@@ -32,6 +32,7 @@ export class TmuxSessionManager {
   private serverUrl: string;
   private sessions = new Map<string, TrackedSession>();
   private pendingSessions = new Set<string>();
+  private parentSessions = new Set<string>();
   private pollInterval?: ReturnType<typeof setInterval>;
   private enabled = false;
   private shuttingDown = false;
@@ -97,6 +98,28 @@ export class TmuxSessionManager {
     const parentId = info.parentID;
     const title = info.title ?? 'Subagent';
 
+    // Track parent-child relationships: if this parentId is seen as a parent,
+    // it is an intermediate session (tool-call wrapper) that should not keep a pane.
+    // Remove its pane immediately if it already has one.
+    if (!this.parentSessions.has(parentId)) {
+      this.parentSessions.add(parentId);
+
+      const parentTracked = this.sessions.get(parentId);
+      if (parentTracked) {
+        log('[tmux-session-manager] parent session identified, closing its pane', {
+          parentId,
+          parentPaneId: parentTracked.paneId,
+          childSessionId: sessionId,
+        });
+        await closeTmuxPane(parentTracked.paneId);
+        this.sessions.delete(parentId);
+
+        if (this.sessions.size === 0) {
+          this.stopPolling();
+        }
+      }
+    }
+
     if (this.sessions.has(sessionId) || this.pendingSessions.has(sessionId)) {
       log('[tmux-session-manager] session already tracked or pending', { sessionId });
       return;
@@ -112,6 +135,17 @@ export class TmuxSessionManager {
       });
 
       const paneResult = await this.spawnQueue.enqueue({ sessionId, title });
+
+      // If this session was identified as a parent while waiting in the spawn
+      // queue, discard its pane immediately (it is an intermediate session).
+      if (paneResult.success && paneResult.paneId && this.parentSessions.has(sessionId)) {
+        log('[tmux-session-manager] session became a parent while queued, discarding pane', {
+          sessionId,
+          paneId: paneResult.paneId,
+        });
+        await closeTmuxPane(paneResult.paneId).catch(() => {});
+        return;
+      }
 
       if (paneResult.success && paneResult.paneId) {
         const now = Date.now();
