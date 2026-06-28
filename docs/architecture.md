@@ -257,6 +257,9 @@ sequenceDiagram
 |----------|----------|
 | Multiple children of same parent | Parent's pane closed once; children both tracked |
 | Deep nesting (A→B→C) | Each intermediate session's pane closed |
+| Rapid burst of children (5+) | Parent pane closed once, all children tracked |
+| Triple concurrency (GP/P/C in-flight) | Intermediate panes discarded, only leaf child tracked |
+| Parent spawn fails → child arrives | No stale pane to close; child spawns normally |
 | Leaf sessions (no children) | Unaffected — pane tracked normally |
 | Unrelated sessions (different parents) | Both tracked independently |
 | Spawn failure for intermediate session | Graceful — no pane to close |
