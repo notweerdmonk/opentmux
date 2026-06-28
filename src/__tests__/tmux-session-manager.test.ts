@@ -368,6 +368,52 @@ test('closes parent pane when child arrives after parent already has pane (Path 
   expect(utils.closeTmuxPane).toHaveBeenCalledWith('%parent');
 });
 
+test('closeTmuxPane rejection during dedup does not lose child event', async () => {
+  const closeSpy = spyOn(utils, 'closeTmuxPane');
+  let closeCallCount = 0;
+  closeSpy.mockImplementation(async () => {
+    closeCallCount++;
+    if (closeCallCount === 1) throw new Error('tmux pane close failed');
+    return true;
+  });
+
+  const ctx = createMockPluginInput();
+  const config = createTmuxConfig({ spawn_delay_ms: 0 });
+  const manager = new TmuxSessionManager(ctx, config, 'http://localhost:4096');
+
+  // Parent spawns and gets a pane
+  const parentEvent = {
+    type: 'session.created',
+    properties: { info: { id: 'parent-session', parentID: 'root', title: 'Parent' } },
+  };
+  const parentPromise = manager.onSessionCreated(parentEvent);
+  await waitFor(() => spawnControllers.has('parent-session'));
+  spawnControllers.get('parent-session')?.resolve({ success: true, paneId: '%parent' });
+  await parentPromise;
+
+  // Fire child event — Path B triggers closeTmuxPane which rejects
+  const childEvent = {
+    type: 'session.created',
+    properties: { info: { id: 'child-session', parentID: 'parent-session', title: 'Child' } },
+  };
+  const childPromise = manager.onSessionCreated(childEvent);
+
+  // Child's spawn should still proceed despite closeTmuxPane rejection
+  await waitFor(() => spawnControllers.has('child-session'));
+  spawnControllers.get('child-session')?.resolve({ success: true, paneId: '%child' });
+  await childPromise;
+
+  // closeTmuxPane was called for parent pane (even though it rejected)
+  expect(closeSpy).toHaveBeenCalledWith('%parent');
+  // Child's spawn was queued and processed (2 spawn calls: parent + child)
+  expect(spawnCalls.length).toBe(2);
+  // Error was logged (no unhandled rejection)
+  expect(utils.log).toHaveBeenCalledWith(
+    '[tmux-session-manager] error closing parent pane',
+    expect.objectContaining({ parentId: 'parent-session', paneId: '%parent', error: 'Error: tmux pane close failed' }),
+  );
+});
+
 test('handles multiple children of same parent', async () => {
   const ctx = createMockPluginInput();
   const config = createTmuxConfig({ spawn_delay_ms: 0 });

@@ -111,7 +111,13 @@ export class TmuxSessionManager {
           parentPaneId: parentTracked.paneId,
           childSessionId: sessionId,
         });
-        await closeTmuxPane(parentTracked.paneId);
+        await closeTmuxPane(parentTracked.paneId).catch((err) =>
+          log('[tmux-session-manager] error closing parent pane', {
+            parentId,
+            paneId: parentTracked.paneId,
+            error: String(err),
+          }),
+        );
         this.sessions.delete(parentId);
 
         if (this.sessions.size === 0) {
@@ -310,7 +316,13 @@ export class TmuxSessionManager {
       reason,
     });
 
-    await closeTmuxPane(tracked.paneId);
+    await closeTmuxPane(tracked.paneId).catch((err) =>
+      log('[tmux-session-manager] error closing session pane', {
+        sessionId,
+        paneId: tracked.paneId,
+        error: String(err),
+      }),
+    );
     this.sessions.delete(sessionId);
     
     log('[tmux-session-manager] session closed', { 
