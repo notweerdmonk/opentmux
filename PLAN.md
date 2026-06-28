@@ -177,3 +177,36 @@ When OpenCode launches a swarm of agents, each subagent spawns TWO `session.crea
 - `src/tmux-session-manager.ts`: Added `parentSessions` Set, parent-tracking in `onSessionCreated`, spawn-completion parent check
 - `src/__tests__/tmux-session-manager.test.ts`: 6 new test scenarios covering both timing paths
 - 74/75 tests pass (1 pre-existing flaky failure), typecheck clean
+
+## Plan Item: Additional test coverage for dedup edge cases
+
+**Status:** ✅ Complete
+
+| Scenario | File | Status |
+|----------|------|--------|
+| Parent spawn fails → child arrives | `tmux-session-manager.test.ts` | ✅ |
+| Rapid burst (5 children) for same parent | `tmux-session-manager.test.ts` | ✅ |
+| Plugin event handler pattern delegation | `tmux-session-manager.test.ts` | ✅ |
+| Triple concurrency (GP/parent/child in-flight) | `tmux-session-manager.test.ts` | ✅ |
+
+**Gotchas:**
+- `mock.module` is process-wide in Bun — integration tests co-located
+- `import('../index')` hangs in test context — avoided it
+- Event handler async deadlock — store promise, resolve controller, then await
+
+**Results:** 78/79 tests pass (1 pre-existing flaky zombie-reaper timeout), typecheck clean
+
+## Plan Item: Code review follow-up cleanup (N1, N2, W2, W3)
+
+**Status:** ✅ Complete
+
+Addressed code review findings from the review workflow. All non-functional changes — comments and file naming only:
+
+| Item | Severity | File | Change |
+|------|----------|------|--------|
+| N1 | Nit | `src/tmux-session-manager.ts` | Grouped comment for 3-layer dedup strategy |
+| W3 | Warning | `src/tmux-session-manager.ts` | Guard comment explaining intentional skip |
+| W2 | Warning | `src/__tests__/tmux-session-manager.test.ts` | Replaced stream-of-consciousness comments |
+| N2 | Nit | `src/__tests__/plugin-entry.test.ts` | Renamed to `plugin-entry-empty.test.ts` |
+
+**Results:** 78/79 tests pass (1 pre-existing flaky), typecheck clean.

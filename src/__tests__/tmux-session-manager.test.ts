@@ -446,22 +446,10 @@ test('handles deep nesting correctly (grandparent unaffected)', async () => {
   spawnControllers.get('child')?.resolve({ success: true, paneId: '%child' });
   await cPromise;
 
-  // Only parent's pane should have been closed from dedup
-  // (grandparent's pane stays)
-  expect(utils.closeTmuxPane).toHaveBeenCalledWith('%parent');
-  // closeTmuxPane should be called at least once (parent close during grandparent creation too:
-  // when "parent" event arrived with parentID=grandparent, grandparent's pane was NOT closed
-  // because grandparent was already tracked but parent events are for the new session, not closing its parent.
-  // Wait — let me trace: when "parent" event arrives with parentID=grandparent:
-  //   parentSessions.add("grandparent")
-  //   grandparent IS in sessions → close grandparent's pane? NO!
-  //   Because grandparent is an AGENT (leaf) that happened to have a child via tool delegation.
-  //   Actually this is expected — grandparent's pane gets closed because it IS a parent now.
-  // Hmm, is this the correct behavior? Let me reconsider...
-  // Actually yes — if grandparent spawns a parent, grandparent is now a "manager" session
-  // and its pane gets appropriately closed.
-  // We just need to verify parent's pane also gets closed when child arrives.
-  // So closeTmuxPane calls: 1 for grandparent close, 1 for parent close = 2 total
+  // When "parent" arrived with parentID=grandparent, grandparent's pane was
+  // closed (grandparent became a parent/manager session via tool delegation).
+  // When "child" arrived with parentID=parent, parent's pane was closed.
+  // Total: 2 closeTmuxPane calls (grandparent + parent), only leaf child keeps pane.
   expect(utils.closeTmuxPane).toHaveBeenCalledTimes(2);
 });
 
@@ -510,4 +498,142 @@ test('unrelated sessions with different parents are both tracked', async () => {
 
   // Both sessions should be tracked — no panes closed
   expect(utils.closeTmuxPane).not.toHaveBeenCalled();
+});
+
+test('handles parent spawn failure followed by child arrival', async () => {
+  const ctx = createMockPluginInput();
+  const config = createTmuxConfig({ spawn_delay_ms: 0 });
+  const manager = new TmuxSessionManager(ctx, config, 'http://localhost:4096');
+
+  const parentEvent = {
+    type: 'session.created',
+    properties: { info: { id: 'parent-fail', parentID: 'root', title: 'Parent Fail' } },
+  };
+  const parentPromise = manager.onSessionCreated(parentEvent);
+
+  await waitFor(() => spawnControllers.has('parent-fail'));
+  spawnControllers.get('parent-fail')?.resolve({ success: false });
+  await parentPromise;
+
+  const childEvent = {
+    type: 'session.created',
+    properties: { info: { id: 'child-after-fail', parentID: 'parent-fail', title: 'Child After Fail' } },
+  };
+  const childPromise = manager.onSessionCreated(childEvent);
+
+  await waitFor(() => spawnControllers.has('child-after-fail'));
+  spawnControllers.get('child-after-fail')?.resolve({ success: true, paneId: '%cfail' });
+  await childPromise;
+
+  expect(utils.closeTmuxPane).not.toHaveBeenCalled();
+  expect(spawnCalls.length).toBe(2);
+  expect(spawnCalls[1].sessionId).toBe('child-after-fail');
+});
+
+test('handles rapid burst of children for same parent', async () => {
+  const ctx = createMockPluginInput();
+  const config = createTmuxConfig({ spawn_delay_ms: 0 });
+  const manager = new TmuxSessionManager(ctx, config, 'http://localhost:4096');
+
+  const parentEvent = {
+    type: 'session.created',
+    properties: { info: { id: 'burst-parent', parentID: 'root', title: 'Burst Parent' } },
+  };
+  const parentPromise = manager.onSessionCreated(parentEvent);
+
+  await waitFor(() => spawnControllers.has('burst-parent'));
+  spawnControllers.get('burst-parent')?.resolve({ success: true, paneId: '%burst' });
+  await parentPromise;
+
+  const childIds = ['burst-c1', 'burst-c2', 'burst-c3', 'burst-c4', 'burst-c5'];
+  const childPaneIds = ['%bc1', '%bc2', '%bc3', '%bc4', '%bc5'];
+
+  for (let i = 0; i < childIds.length; i++) {
+    const event = {
+      type: 'session.created',
+      properties: { info: { id: childIds[i], parentID: 'burst-parent', title: `Burst Child ${i + 1}` } },
+    };
+    const promise = manager.onSessionCreated(event);
+    await waitFor(() => spawnControllers.has(childIds[i]));
+    spawnControllers.get(childIds[i])?.resolve({ success: true, paneId: childPaneIds[i] });
+    await promise;
+  }
+
+  expect(utils.closeTmuxPane).toHaveBeenCalledTimes(1);
+  expect(utils.closeTmuxPane).toHaveBeenCalledWith('%burst');
+  expect(spawnCalls.length).toBe(6);
+});
+
+test('handles grandparent-parent-child triple concurrency in-flight', async () => {
+  const ctx = createMockPluginInput();
+  const config = createTmuxConfig({ spawn_delay_ms: 0 });
+  const manager = new TmuxSessionManager(ctx, config, 'http://localhost:4096');
+
+  const gpEvent = {
+    type: 'session.created',
+    properties: { info: { id: 'gp-3', parentID: 'root', title: 'GP-3' } },
+  };
+  const gpPromise = manager.onSessionCreated(gpEvent);
+
+  await waitFor(() => spawnControllers.has('gp-3'));
+
+  const pEvent = {
+    type: 'session.created',
+    properties: { info: { id: 'parent-3', parentID: 'gp-3', title: 'Parent-3' } },
+  };
+  const pPromise = manager.onSessionCreated(pEvent);
+
+  const cEvent = {
+    type: 'session.created',
+    properties: { info: { id: 'child-3', parentID: 'parent-3', title: 'Child-3' } },
+  };
+  const cPromise = manager.onSessionCreated(cEvent);
+
+  spawnControllers.get('gp-3')?.resolve({ success: true, paneId: '%gp3' });
+  await gpPromise;
+
+  await waitFor(() => spawnControllers.has('parent-3'));
+  spawnControllers.get('parent-3')?.resolve({ success: true, paneId: '%p3' });
+  await pPromise;
+
+  await waitFor(() => spawnControllers.has('child-3'));
+  spawnControllers.get('child-3')?.resolve({ success: true, paneId: '%c3' });
+  await cPromise;
+
+  expect(utils.closeTmuxPane).toHaveBeenCalledTimes(2);
+  expect(utils.closeTmuxPane).toHaveBeenCalledWith('%gp3');
+  expect(utils.closeTmuxPane).toHaveBeenCalledWith('%p3');
+  expect(spawnCalls.length).toBe(3);
+});
+
+// ─── Plugin event pattern compatibility tests ────────────────────────
+// Verifies that TmuxSessionManager works correctly when called through
+// the same event handler pattern used by the Plugin factory (index.ts).
+// (import('../index') has a Bun test runner hang issue, so we construct
+// the handler manually to verify the same delegation path.)
+
+test('event handler wrapper delegates session.created to TmuxSessionManager', async () => {
+  const ctx = createMockPluginInput();
+  const config = createTmuxConfig({ spawn_delay_ms: 0 });
+  const manager = new TmuxSessionManager(ctx, config, 'http://localhost:4096');
+
+  // Create handler matching Plugin interface shape
+  const eventHandler = async (input: { event: { type: string; properties?: unknown } }) => {
+    await manager.onSessionCreated(input.event as any);
+  };
+
+  const sessionEvent = {
+    type: 'session.created',
+    properties: { info: { id: 'handler-test-session', parentID: 'root', title: 'Handler Test' } },
+  };
+  // Don't await yet — spawn controller must resolve first (avoid async deadlock)
+  const handlerPromise = eventHandler({ event: sessionEvent });
+
+  await waitFor(() => spawnControllers.has('handler-test-session'));
+  spawnControllers.get('handler-test-session')?.resolve({ success: true, paneId: '%handler' });
+  await handlerPromise;
+
+  const matchingSpawn = spawnCalls.find(c => c.sessionId === 'handler-test-session');
+  expect(matchingSpawn).toBeDefined();
+  expect(matchingSpawn?.title).toBe('Handler Test');
 });

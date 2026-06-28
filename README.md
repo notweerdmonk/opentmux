@@ -176,8 +176,35 @@ You can customize behavior by creating `~/.config/opencode/opentmux.json`:
 2. Check tmux is installed: `which tmux` (or `where tmux` on Windows)
 3. Check logs: `cat /tmp/opentmux.log`
 
+### Duplicate Panes (Extra Panes Per Subagent)
+
+If each subagent gets more than one pane (e.g. 5 panes for 3 agents):
+1. Check the log at `/tmp/opencode-agent-tmux.log` for two `initialized` messages
+2. This means OpenCode loaded the plugin twice (see below)
+3. Make sure you're on the latest version: `npm update -g opentmux`
+4. Verify your OpenCode config doesn't list the same plugin twice
+
+### Duplicate Plugin Loading
+
+If the log shows two `initialized` messages, OpenCode is loading the plugin from
+two different sources.
+
+Check your OpenCode config (`~/.config/opencode/opencode.json`) for duplicates:
+
+```json
+{
+  "plugin": [
+    "opentmux"            // ← npm package
+  ]
+}
+```
+
+Remove one. Use only the npm package name or the local path, not both.
+
 ### Server Not Found
-Make sure OpenCode is started with the `--port` flag matching your config (the wrapper does this automatically).
+
+Make sure OpenCode is started with the `--port` flag matching your config
+(the wrapper does this automatically).
 
 ## 🗺️ Roadmap
 

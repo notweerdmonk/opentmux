@@ -18,7 +18,7 @@ Tests are colocated in `src/__tests__/` and mirror the source structure:
 
 | Test file | Source tested | Coverage |
 |-----------|---------------|----------|
-| `tmux-session-manager.test.ts` | `tmux-session-manager.ts` | Session tracking, pane spawn/close, parent-session dedup (6 scenarios), event filtering, config passthrough, layout refresh |
+| `tmux-session-manager.test.ts` | `tmux-session-manager.ts` | Session tracking, pane spawn/close, parent-session dedup (10 scenarios), event filtering, config passthrough, layout refresh, plugin event handler pattern |
 | `spawn-queue.test.ts` | `spawn-queue.ts` | Sequential queuing, coalescing, retry logic, stale threshold, drain callback |
 | `zombie-reaper.test.ts` | `zombie-reaper.ts` | Orphan detection, grace period, self-destruct, manual reap |
 | `tmux.test.ts` | `utils/tmux.ts` | `spawnTmuxPane`, `closeTmuxPane`, `isInsideTmux` |
@@ -65,6 +65,12 @@ function createControlledPromise<T = void>(): {
 
 This allows tests to control exactly when async operations complete, enabling precise testing of race conditions and timing-dependent behavior like parent-session dedup.
 
+**Important:** When calling an event handler that internally awaits `spawnQueue.enqueue()`, do NOT await the handler before resolving the spawn controller. Store the handler promise, resolve the controller, then await the handler. Awaiting the handler first creates a deadlock because `onSessionCreated` → `spawnQueue.enqueue()` → awaits the spawnFn result (the controlled promise).
+
+### Avoid `mock.module` for Cross-File Mocks
+
+`mock.module` in Bun is process-wide — mocking a module in one test file pollutes the module cache for all other test files. Integration tests that need module mocks should be co-located in existing test files that share the same `beforeEach` setup.
+
 ### SpyOn for Assertions
 
 Tests use `spyOn` to verify that methods were called with expected arguments:
@@ -84,7 +90,7 @@ expect(closeSpy).toHaveBeenCalledWith('pane-parent');
 - `pendingSessions` prevents duplicate processing of in-flight sessions
 - `sessions` Map prevents re-processing of completed sessions
 
-### Parent-Session Dedup (6 scenarios, v1.5.8+)
+### Parent-Session Dedup (10 scenarios, v1.5.8+)
 
 | # | Scenario | Verification |
 |---|----------|--------------|
@@ -94,6 +100,10 @@ expect(closeSpy).toHaveBeenCalledWith('pane-parent');
 | 4 | Deep nesting (A→B→C) | Grandparent unaffected, intermediate session pane closed |
 | 5 | Leaf session (no children) | Normal tracking — no `closeTmuxPane` calls |
 | 6 | Unrelated sessions (different parents) | Both tracked independently |
+| 7 | Parent spawn fails → child arrives | `closeTmuxPane` never called, child tracked normally |
+| 8 | Rapid burst (5 children) same parent | Parent pane closed once, all 5 children tracked |
+| 9 | Plugin event handler pattern | Handler delegates events through TmuxSessionManager |
+| 10 | Triple concurrency (GP/P/C in-flight) | Intermediate panes discarded, only leaf child tracked |
 
 ### Spawn Queue
 

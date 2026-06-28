@@ -30,6 +30,10 @@ export class TmuxSessionManager {
   private client: OpencodeClient;
   private tmuxConfig: TmuxConfig;
   private serverUrl: string;
+  // Three-layer dedup for session-to-pane tracking:
+  //   sessions        — sessions with active panes (post-spawn)
+  //   pendingSessions — sessions awaiting pane spawn (in-flight)
+  //   parentSessions  — session IDs identified as parents; their panes get discarded
   private sessions = new Map<string, TrackedSession>();
   private pendingSessions = new Set<string>();
   private parentSessions = new Set<string>();
@@ -101,6 +105,9 @@ export class TmuxSessionManager {
     // Track parent-child relationships: if this parentId is seen as a parent,
     // it is an intermediate session (tool-call wrapper) that should not keep a pane.
     // Remove its pane immediately if it already has one.
+    // Guard ensures parent's pane is closed only once even if multiple children
+    // arrive. Subsequent children with the same parentID skip this block but
+    // continue to be processed normally below.
     if (!this.parentSessions.has(parentId)) {
       this.parentSessions.add(parentId);
 
