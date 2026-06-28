@@ -85,7 +85,7 @@ expect(closeSpy).toHaveBeenCalledWith('pane-parent');
 - `pendingSessions` prevents duplicate processing of in-flight sessions
 - `sessions` Map prevents re-processing of completed sessions
 
-### Parent-Session Dedup (11 scenarios, v1.5.8+)
+### Parent-Session Dedup (13 scenarios, v1.5.8+)
 
 | # | Scenario | Verification |
 |---|----------|--------------|
@@ -100,6 +100,8 @@ expect(closeSpy).toHaveBeenCalledWith('pane-parent');
 | 9 | Plugin event handler pattern | Handler delegates events through TmuxSessionManager |
 | 10 | Triple concurrency (GP/P/C in-flight) | Intermediate panes discarded, only leaf child tracked |
 | 11 | `closeTmuxPane` rejection during dedup | Child event NOT lost despite error, error logged with context |
+| 12 | Concurrent hierarchies in-flight (Path A) | Two parents in queue; children arrive during delay — each child only affects its own parent's pane |
+| 13 | Concurrent hierarchies tracked (Path B) | Two parents tracked; children arrive after — each child closes correct parent pane by parentId |
 
 ### Spawn Queue
 

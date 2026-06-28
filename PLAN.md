@@ -247,3 +247,16 @@ Two mechanical refactoring items from code review suggestions — zero behaviora
 **Changes:** `src/tmux-session-manager.ts` — +2 private methods, -1 inline block, -2 inline conditionals
 
 **Tests:** 79/80 pass (1 pre-existing flaky), typecheck clean
+
+## Plan Item: Cross-contamination test for concurrent hierarchies (S3)
+
+**Status:** ✅ Complete
+
+Two new test scenarios verifying that independent session hierarchies do not cross-contaminate each other's dedup logic:
+
+1. **Path A** — Two parents in-flight simultaneously; children arrive during queue delay. Each parent's pane is discarded by its own child — not the other child.
+2. **Path B** — Two parents already tracked in sessions; children arrive after. Each child's `markParentAndCloseExistingPane()` resolves the correct parent by `parentId`.
+
+**Changes:** `src/__tests__/tmux-session-manager.test.ts` — +2 tests (TC-12, TC-13)
+
+**Tests:** 81/82 expected pass (1 pre-existing flaky), typecheck clean

@@ -557,3 +557,255 @@ test('unrelated sessions with different parents are both tracked', async () => {
   // Both sessions should be tracked — no panes closed
   expect(utils.closeTmuxPane).not.toHaveBeenCalled();
 });
+
+test('handles parent spawn failure followed by child arrival', async () => {
+  const ctx = createMockPluginInput();
+  const config = createTmuxConfig({ spawn_delay_ms: 0 });
+  const manager = new TmuxSessionManager(ctx, config, 'http://localhost:4096');
+
+  const parentEvent = {
+    type: 'session.created',
+    properties: { info: { id: 'parent-fail', parentID: 'root', title: 'Parent Fail' } },
+  };
+  const parentPromise = manager.onSessionCreated(parentEvent);
+
+  await waitFor(() => spawnControllers.has('parent-fail'));
+  spawnControllers.get('parent-fail')?.resolve({ success: false });
+  await parentPromise;
+
+  const childEvent = {
+    type: 'session.created',
+    properties: { info: { id: 'child-after-fail', parentID: 'parent-fail', title: 'Child After Fail' } },
+  };
+  const childPromise = manager.onSessionCreated(childEvent);
+
+  await waitFor(() => spawnControllers.has('child-after-fail'));
+  spawnControllers.get('child-after-fail')?.resolve({ success: true, paneId: '%cfail' });
+  await childPromise;
+
+  expect(utils.closeTmuxPane).not.toHaveBeenCalled();
+  expect(spawnCalls.length).toBe(2);
+  expect(spawnCalls[1].sessionId).toBe('child-after-fail');
+});
+
+test('handles rapid burst of children for same parent', async () => {
+  const ctx = createMockPluginInput();
+  const config = createTmuxConfig({ spawn_delay_ms: 0 });
+  const manager = new TmuxSessionManager(ctx, config, 'http://localhost:4096');
+
+  const parentEvent = {
+    type: 'session.created',
+    properties: { info: { id: 'burst-parent', parentID: 'root', title: 'Burst Parent' } },
+  };
+  const parentPromise = manager.onSessionCreated(parentEvent);
+
+  await waitFor(() => spawnControllers.has('burst-parent'));
+  spawnControllers.get('burst-parent')?.resolve({ success: true, paneId: '%burst' });
+  await parentPromise;
+
+  const childIds = ['burst-c1', 'burst-c2', 'burst-c3', 'burst-c4', 'burst-c5'];
+  const childPaneIds = ['%bc1', '%bc2', '%bc3', '%bc4', '%bc5'];
+
+  for (let i = 0; i < childIds.length; i++) {
+    const event = {
+      type: 'session.created',
+      properties: { info: { id: childIds[i], parentID: 'burst-parent', title: `Burst Child ${i + 1}` } },
+    };
+    const promise = manager.onSessionCreated(event);
+    await waitFor(() => spawnControllers.has(childIds[i]));
+    spawnControllers.get(childIds[i])?.resolve({ success: true, paneId: childPaneIds[i] });
+    await promise;
+  }
+
+  expect(utils.closeTmuxPane).toHaveBeenCalledTimes(1);
+  expect(utils.closeTmuxPane).toHaveBeenCalledWith('%burst');
+  expect(spawnCalls.length).toBe(6);
+});
+
+test('handles grandparent-parent-child triple concurrency in-flight', async () => {
+  const ctx = createMockPluginInput();
+  const config = createTmuxConfig({ spawn_delay_ms: 0 });
+  const manager = new TmuxSessionManager(ctx, config, 'http://localhost:4096');
+
+  const gpEvent = {
+    type: 'session.created',
+    properties: { info: { id: 'gp-3', parentID: 'root', title: 'GP-3' } },
+  };
+  const gpPromise = manager.onSessionCreated(gpEvent);
+
+  await waitFor(() => spawnControllers.has('gp-3'));
+
+  const pEvent = {
+    type: 'session.created',
+    properties: { info: { id: 'parent-3', parentID: 'gp-3', title: 'Parent-3' } },
+  };
+  const pPromise = manager.onSessionCreated(pEvent);
+
+  const cEvent = {
+    type: 'session.created',
+    properties: { info: { id: 'child-3', parentID: 'parent-3', title: 'Child-3' } },
+  };
+  const cPromise = manager.onSessionCreated(cEvent);
+
+  spawnControllers.get('gp-3')?.resolve({ success: true, paneId: '%gp3' });
+  await gpPromise;
+
+  await waitFor(() => spawnControllers.has('parent-3'));
+  spawnControllers.get('parent-3')?.resolve({ success: true, paneId: '%p3' });
+  await pPromise;
+
+  await waitFor(() => spawnControllers.has('child-3'));
+  spawnControllers.get('child-3')?.resolve({ success: true, paneId: '%c3' });
+  await cPromise;
+
+  expect(utils.closeTmuxPane).toHaveBeenCalledTimes(2);
+  expect(utils.closeTmuxPane).toHaveBeenCalledWith('%gp3');
+  expect(utils.closeTmuxPane).toHaveBeenCalledWith('%p3');
+  expect(spawnCalls.length).toBe(3);
+});
+
+// ─── Plugin event pattern compatibility tests ────────────────────────
+// Verifies that TmuxSessionManager works correctly when called through
+// the same event handler pattern used by the Plugin factory (index.ts).
+// (import('../index') has a Bun test runner hang issue, so we construct
+// the handler manually to verify the same delegation path.)
+
+test('event handler wrapper delegates session.created to TmuxSessionManager', async () => {
+  const ctx = createMockPluginInput();
+  const config = createTmuxConfig({ spawn_delay_ms: 0 });
+  const manager = new TmuxSessionManager(ctx, config, 'http://localhost:4096');
+
+  // Create handler matching Plugin interface shape
+  const eventHandler = async (input: { event: { type: string; properties?: unknown } }) => {
+    await manager.onSessionCreated(input.event as any);
+  };
+
+  const sessionEvent = {
+    type: 'session.created',
+    properties: { info: { id: 'handler-test-session', parentID: 'root', title: 'Handler Test' } },
+  };
+  // Don't await yet — spawn controller must resolve first (avoid async deadlock)
+  const handlerPromise = eventHandler({ event: sessionEvent });
+
+  await waitFor(() => spawnControllers.has('handler-test-session'));
+  spawnControllers.get('handler-test-session')?.resolve({ success: true, paneId: '%handler' });
+  await handlerPromise;
+
+  const matchingSpawn = spawnCalls.find(c => c.sessionId === 'handler-test-session');
+  expect(matchingSpawn).toBeDefined();
+  expect(matchingSpawn?.title).toBe('Handler Test');
+});
+
+test('cross-contamination: concurrent hierarchies in-flight (Path A)', async () => {
+  const ctx = createMockPluginInput();
+  const config = createTmuxConfig({ spawn_delay_ms: 0 });
+  const manager = new TmuxSessionManager(ctx, config, 'http://localhost:4096');
+
+  // Fire Parent-A — spawn starts (enqueued, in-flight)
+  const parentAEvent = {
+    type: 'session.created',
+    properties: { info: { id: 'parent-a', parentID: 'root', title: 'Parent A' } },
+  };
+  const parentAPromise = manager.onSessionCreated(parentAEvent);
+  await waitFor(() => spawnControllers.has('parent-a'));
+
+  // Fire Parent-B — enqueued behind Parent-A
+  const parentBEvent = {
+    type: 'session.created',
+    properties: { info: { id: 'parent-b', parentID: 'root', title: 'Parent B' } },
+  };
+  const parentBPromise = manager.onSessionCreated(parentBEvent);
+
+  // Fire Child-A1 — markParentAndCloseExistingPane runs; parent-a not in sessions yet
+  const childA1Event = {
+    type: 'session.created',
+    properties: { info: { id: 'child-a1', parentID: 'parent-a', title: 'Child A1' } },
+  };
+  const childA1Promise = manager.onSessionCreated(childA1Event);
+
+  // Fire Child-B1 — markParentAndCloseExistingPane runs; parent-b not in sessions yet
+  const childB1Event = {
+    type: 'session.created',
+    properties: { info: { id: 'child-b1', parentID: 'parent-b', title: 'Child B1' } },
+  };
+  const childB1Promise = manager.onSessionCreated(childB1Event);
+
+  // Resolve Parent-A → parentSessions.has('parent-a') → pane discarded
+  spawnControllers.get('parent-a')?.resolve({ success: true, paneId: '%pa' });
+  await parentAPromise;
+
+  // Resolve Parent-B → parentSessions.has('parent-b') → pane discarded
+  await waitFor(() => spawnControllers.has('parent-b'));
+  spawnControllers.get('parent-b')?.resolve({ success: true, paneId: '%pb' });
+  await parentBPromise;
+
+  // Resolve Child-A1 → tracked normally
+  await waitFor(() => spawnControllers.has('child-a1'));
+  spawnControllers.get('child-a1')?.resolve({ success: true, paneId: '%ca1' });
+  await childA1Promise;
+
+  // Resolve Child-B1 → tracked normally
+  await waitFor(() => spawnControllers.has('child-b1'));
+  spawnControllers.get('child-b1')?.resolve({ success: true, paneId: '%cb1' });
+  await childB1Promise;
+
+  expect(utils.closeTmuxPane).toHaveBeenCalledTimes(2);
+  expect(utils.closeTmuxPane).toHaveBeenCalledWith('%pa');
+  expect(utils.closeTmuxPane).toHaveBeenCalledWith('%pb');
+  expect(spawnCalls.length).toBe(4);
+});
+
+test('cross-contamination: concurrent hierarchies tracked (Path B)', async () => {
+  const ctx = createMockPluginInput();
+  const config = createTmuxConfig({ spawn_delay_ms: 0 });
+  const manager = new TmuxSessionManager(ctx, config, 'http://localhost:4096');
+
+  // Parent-A spawns and gets tracked pane
+  const parentAEvent = {
+    type: 'session.created',
+    properties: { info: { id: 'parent-a-tracked', parentID: 'root', title: 'Parent A' } },
+  };
+  const parentAPromise = manager.onSessionCreated(parentAEvent);
+  await waitFor(() => spawnControllers.has('parent-a-tracked'));
+  spawnControllers.get('parent-a-tracked')?.resolve({ success: true, paneId: '%pa-tracked' });
+  await parentAPromise;
+
+  // Parent-B spawns and gets tracked pane
+  const parentBEvent = {
+    type: 'session.created',
+    properties: { info: { id: 'parent-b-tracked', parentID: 'root', title: 'Parent B' } },
+  };
+  const parentBPromise = manager.onSessionCreated(parentBEvent);
+  await waitFor(() => spawnControllers.has('parent-b-tracked'));
+  spawnControllers.get('parent-b-tracked')?.resolve({ success: true, paneId: '%pb-tracked' });
+  await parentBPromise;
+
+  // Child-A1 arrives → Path B: close parent-a-tracked's pane
+  const childA1Event = {
+    type: 'session.created',
+    properties: { info: { id: 'child-a1-tracked', parentID: 'parent-a-tracked', title: 'Child A1' } },
+  };
+  const childA1Promise = manager.onSessionCreated(childA1Event);
+
+  // Child-B1 arrives → Path B: close parent-b-tracked's pane
+  const childB1Event = {
+    type: 'session.created',
+    properties: { info: { id: 'child-b1-tracked', parentID: 'parent-b-tracked', title: 'Child B1' } },
+  };
+  const childB1Promise = manager.onSessionCreated(childB1Event);
+
+  // Resolve Child-A1 → tracked normally
+  await waitFor(() => spawnControllers.has('child-a1-tracked'));
+  spawnControllers.get('child-a1-tracked')?.resolve({ success: true, paneId: '%ca1-tracked' });
+  await childA1Promise;
+
+  // Resolve Child-B1 → tracked normally
+  await waitFor(() => spawnControllers.has('child-b1-tracked'));
+  spawnControllers.get('child-b1-tracked')?.resolve({ success: true, paneId: '%cb1-tracked' });
+  await childB1Promise;
+
+  expect(utils.closeTmuxPane).toHaveBeenCalledTimes(2);
+  expect(utils.closeTmuxPane).toHaveBeenCalledWith('%pa-tracked');
+  expect(utils.closeTmuxPane).toHaveBeenCalledWith('%pb-tracked');
+  expect(spawnCalls.length).toBe(4);
+});
