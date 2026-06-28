@@ -234,3 +234,16 @@ Inconsistent error handling for `closeTmuxPane`. Two call sites (Path B, `closeS
 |----------|-------|
 | Path B (~line 123) | `this.parentSessions.delete(parentId)` after pane closed |
 | Path A (~line 154) | `this.parentSessions.delete(sessionId)` after pane discarded |
+
+## Plan Item: Extract helper methods (S1 + S4)
+
+**Status:** ✅ Complete
+
+Two mechanical refactoring items from code review suggestions — zero behavioral change:
+
+1. **S4 — `markParentAndCloseExistingPane()`**: Extracted inline parent-detection block into a private async method with early-return guards
+2. **S1 — `stopPollingIfEmpty()`**: Extracted `if (sessions.size === 0) { stopPolling(); }` into a named helper, reused across extracted method and `closeSession`
+
+**Changes:** `src/tmux-session-manager.ts` — +2 private methods, -1 inline block, -2 inline conditionals
+
+**Tests:** 79/80 pass (1 pre-existing flaky), typecheck clean

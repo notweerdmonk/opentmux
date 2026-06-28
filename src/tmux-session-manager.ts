@@ -98,34 +98,7 @@ export class TmuxSessionManager {
     const parentId = info.parentID;
     const title = info.title ?? 'Subagent';
 
-    // Track parent-child relationships: if this parentId is seen as a parent,
-    // it is an intermediate session (tool-call wrapper) that should not keep a pane.
-    // Remove its pane immediately if it already has one.
-    if (!this.parentSessions.has(parentId)) {
-      this.parentSessions.add(parentId);
-
-      const parentTracked = this.sessions.get(parentId);
-      if (parentTracked) {
-        log('[tmux-session-manager] parent session identified, closing its pane', {
-          parentId,
-          parentPaneId: parentTracked.paneId,
-          childSessionId: sessionId,
-        });
-        await closeTmuxPane(parentTracked.paneId).catch((err) =>
-          log('[tmux-session-manager] error closing parent pane', {
-            parentId,
-            paneId: parentTracked.paneId,
-            error: String(err),
-          }),
-        );
-        this.sessions.delete(parentId);
-        this.parentSessions.delete(parentId);
-
-        if (this.sessions.size === 0) {
-          this.stopPolling();
-        }
-      }
-    }
+    await this.markParentAndCloseExistingPane(parentId, sessionId);
 
     if (this.sessions.has(sessionId) || this.pendingSessions.has(sessionId)) {
       log('[tmux-session-manager] session already tracked or pending', { sessionId });
@@ -196,6 +169,43 @@ export class TmuxSessionManager {
       this.pollInterval = undefined;
       log('[tmux-session-manager] polling stopped');
     }
+  }
+
+  private stopPollingIfEmpty(): void {
+    if (this.sessions.size === 0) {
+      this.stopPolling();
+    }
+  }
+
+  // Track parent-child relationships: if this parentId is seen as a parent,
+  // it is an intermediate session (tool-call wrapper) that should not keep a pane.
+  // Remove its pane immediately if it already has one.
+  // Guard ensures parent's pane is closed only once even if multiple children
+  // arrive. Subsequent children with the same parentID skip this block but
+  // continue to be processed normally below.
+  private async markParentAndCloseExistingPane(parentId: string, childSessionId: string): Promise<void> {
+    if (this.parentSessions.has(parentId)) return;
+    this.parentSessions.add(parentId);
+
+    const parentTracked = this.sessions.get(parentId);
+    if (!parentTracked) return;
+
+    log('[tmux-session-manager] parent session identified, closing its pane', {
+      parentId,
+      parentPaneId: parentTracked.paneId,
+      childSessionId,
+    });
+    await closeTmuxPane(parentTracked.paneId).catch((err) =>
+      log('[tmux-session-manager] error closing parent pane', {
+        parentId,
+        paneId: parentTracked.paneId,
+        error: String(err),
+      }),
+    );
+    this.sessions.delete(parentId);
+    this.parentSessions.delete(parentId);
+
+    this.stopPollingIfEmpty();
   }
 
   private scheduleDebouncedLayout(): void {
@@ -332,9 +342,7 @@ export class TmuxSessionManager {
       remainingSessions: this.sessions.size 
     });
 
-    if (this.sessions.size === 0) {
-      this.stopPolling();
-    }
+    this.stopPollingIfEmpty();
   }
 
   createEventHandler(): (input: {
