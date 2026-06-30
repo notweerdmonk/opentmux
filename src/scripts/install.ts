@@ -127,15 +127,13 @@ function setupAlias(): void {
   
   let configBlock = '';
   if (shell.name === 'powershell') {
-      configBlock = `
-${MARKER_START}
+      configBlock = `${MARKER_START}
 $env:OPENCODE_PORT="4096"
 ${aliasContent}
 ${MARKER_END}
 `;
   } else {
-      configBlock = `
-${MARKER_START}
+      configBlock = `${MARKER_START}
 ${getExportLine()}
 ${aliasContent}
 ${MARKER_END}

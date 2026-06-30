@@ -211,6 +211,36 @@ Addressed code review findings from the review workflow. All non-functional chan
 
 **Results:** 78/79 tests pass (1 pre-existing flaky), typecheck clean.
 
+## Plan Item: Fix extra leading blank line in install script configBlock
+
+**Status:** ✅ Complete
+
+**Date:** 2026-06-30
+
+**Problem:** The `src/scripts/install.ts` configBlock template literal starts with a leading `\n` (newline right after the opening backtick). Every time `node dist/scripts/install.js` runs, this leading newline is prepended to the shell rc file, creating an extra blank line above the marker block. On re-runs, this compounds — after the old block is removed and new one appended, a double blank line appears.
+
+**Root Cause:** Template literal at lines 130 (powershell) and 137 (bash):
+```typescript
+configBlock = `              // ← leading \n here
+${MARKER_START}
+```
+
+**Fix:** Move `${MARKER_START}` immediately after the opening backtick — no leading newline.
+
+**Changes:**
+- `src/scripts/install.ts` — Remove leading `\n` from both powershell and bash configBlock templates
+- `dist/scripts/install.js` — Rebuilt via `bun run build`
+- Postinstall script will no longer add extra blank lines to shell rc files
+
+**Implementation results:**
+- Both template literals fixed (powershell + bash)
+- `bun run build` → dist rebuilt
+- Manual verification: no extra blank line after `node dist/scripts/install.js`
+- Idempotency verified: second run produces same output
+- Regression: 81/82 tests pass (1 pre-existing flaky), typecheck clean
+
+**Status:** ✅ Complete
+
 ## Plan Item: Fix unhandled closeTmuxPane errors (C1 + S2)
 
 **Status:** ✅ Complete
