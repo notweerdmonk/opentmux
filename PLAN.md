@@ -290,3 +290,31 @@ Two new test scenarios verifying that independent session hierarchies do not cro
 **Changes:** `src/__tests__/tmux-session-manager.test.ts` — +2 tests (TC-12, TC-13)
 
 **Tests:** 81/82 expected pass (1 pre-existing flaky), typecheck clean
+
+## Plan Item: Fix forced opencode-agent-tmux install via update-plugins.ts
+
+**Status:** ✅ Complete
+
+**Date:** 2026-07-07
+
+**Problem:** When opentmux is installed locally via `npm link` and the local path is added to `~/.config/opencode/opencode.json` under `plugins`, running `opencode` still triggers a forced `npm install -g opencode-agent-tmux@latest`. This happens because `src/scripts/update-plugins.ts` hardcodes `'opencode-agent-tmux'` in the update list (line 149), regardless of what the user has configured.
+
+**Root Cause:** Line 149 in `update-plugins.ts`:
+```typescript
+const updateList = ['opencode-agent-tmux', ...plugins];
+```
+This always includes the old package name in the update list, causing `installLatest()` to run `npm install -g opencode-agent-tmux@latest` every time the binary runs (triggered by `OPENCODE_TMUX_UPDATE=1` env var set in `src/bin/opentmux.ts:53`).
+
+**Fix:** Replace the hardcoded entry with smart detection — only force-install if no tmux plugin is already configured. Maintains backward compatibility for users on the old name.
+
+**Changes:**
+- `src/scripts/update-plugins.ts` — Replace line 149 with `hasTmuxPlugin` detection logic
+- `dist/scripts/update-plugins.js` — Rebuilt via `bun run build`
+
+**Implementation results:**
+- `hasTmuxPlugin` detection logic added to `main()` (lines 150-156)
+- Default plugin name changed from `opencode-agent-tmux` to `opentmux` (line 115)
+- `bun run build` → dist rebuilt
+- Regression: 81/82 tests pass (1 pre-existing flaky), typecheck clean
+
+**Status:** ✅ Complete

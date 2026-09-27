@@ -28,12 +28,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/AnganSamadder/opentmux.git"
+    "url": "git+https://github.com/notweerdmonk/opentmux.git"
   },
   "bugs": {
-    "url": "https://github.com/AnganSamadder/opentmux/issues"
+    "url": "https://github.com/notweerdmonk/opentmux/issues"
   },
-  "homepage": "https://github.com/AnganSamadder/opentmux#readme",
+  "homepage": "https://github.com/notweerdmonk/opentmux#readme",
   "publishConfig": {
     "access": "public"
   },
